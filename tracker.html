@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocaTrack - Mobil Konum Gönderici</title>
+    <!-- Mobile specific web app tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="overflow-y: auto;">
+    <div class="mobile-app">
+        <!-- Header -->
+        <header class="mobile-header">
+            <div class="brand">
+                <div class="brand-icon" style="width: 32px; height: 32px;">
+                    <i data-lucide="radio" style="width: 18px; height: 18px;"></i>
+                </div>
+                <h1 class="brand-title" style="font-size: 18px;">LocaTrack Mobil</h1>
+            </div>
+            
+            <div id="connection-badge" class="status-badge disconnected">
+                <span class="status-dot"></span>
+                <span id="connection-status-text">Bağlantı Yok</span>
+            </div>
+        </header>
+
+        <!-- Main Tracking Section -->
+        <main class="tracker-hub">
+            <!-- Setup Session Overlay / View -->
+            <div id="setup-view" class="glass-panel" style="width: 100%; padding: 24px; display: none; flex-direction: column; gap: 16px;">
+                <h3 style="font-size: 18px; font-weight: 700; text-align: center;">İzleme Paneli Eşleştirme</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); text-align: center; line-height: 1.4;">
+                    Bilgisayar ekranındaki 6 haneli <strong>Eşleşme Kodunu</strong> girerek cihazları birbirine bağlayın:
+                </p>
+                <input type="text" id="input-session" placeholder="Örn: XYZ123" maxlength="6" style="width: 100%; padding: 14px; border-radius: 10px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.05); color: white; font-size: 20px; text-transform: uppercase; text-align: center; font-weight: bold; letter-spacing: 0.1em; outline: none; margin: 10px 0;">
+                <button id="btn-submit-session" class="btn btn-primary">Cihazı Bağla</button>
+            </div>
+
+            <!-- Active Tracker View -->
+            <div id="tracking-view" style="display: flex; flex-direction: column; align-items: center; gap: 30px; width: 100%;">
+                <div class="tracker-button-container">
+                    <button id="btn-tracker-toggle" class="tracker-btn">
+                        <i data-lucide="power"></i>
+                        <span id="tracker-btn-text">Konumu Başlat</span>
+                    </button>
+                </div>
+                
+                <div id="tracking-status-label" style="font-size: 14px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; tracking-spacing: 0.05em; height: 20px;">
+                    Takip Devre Dışı
+                </div>
+            </div>
+        </main>
+
+        <!-- Info / Data Panel -->
+        <footer class="glass-panel mobile-info-panel">
+            <div class="mobile-info-row">
+                <span class="label">Eşleşme Odası</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="display-session" class="value" style="color: var(--accent-cyan);">------</span>
+                    <button id="btn-edit-session" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; display: flex; align-items: center;"><i data-lucide="edit-3" style="width: 14px; height: 14px;"></i></button>
+                </div>
+            </div>
+            <div class="mobile-info-row">
+                <span class="label">GPS Doğruluk</span>
+                <span id="display-accuracy" class="value">-- m</span>
+            </div>
+            <div class="mobile-info-row">
+                <span class="label">Hız / Rakım</span>
+                <span id="display-speed-alt" class="value">-- / --</span>
+            </div>
+            <div class="mobile-info-row">
+                <span class="label">Koordinatlar</span>
+                <span id="display-coords" class="value" style="font-size: 12px; font-family: monospace;">Bekleniyor...</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="notification-banner">
+        <i data-lucide="info" style="color: var(--accent-cyan);"></i>
+        <span id="toast-message">Bildirim Mesajı</span>
+    </div>
+
+    <!-- MQTT JS Client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        let mqttClient;
+        let sessionId = "";
+        let isTracking = false;
+        let watchId = null;
+        let wakeLock = null;
+        let batteryInfo = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            // Load Lucide Icons
+            try {
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            } catch (e) {
+                console.error("Lucide icons error:", e);
+            }
+
+            // Check URL parameters first, then localStorage
+            try {
+                parseSession();
+            } catch (e) {
+                console.error("Session parsing error:", e);
+            }
+
+            // Set up Battery Status tracking
+            try {
+                initBattery();
+            } catch (e) {
+                console.error("Battery init error:", e);
+            }
+
+            // Set up Event Listeners
+            try {
+                setupEventListeners();
+            } catch (e) {
+                console.error("Event listeners error:", e);
+            }
+
+            // Register Service Worker for PWA
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(() => console.log('Service Worker Registered'))
+                    .catch(err => console.warn('Service Worker registration failed:', err));
+            }
+        });
+
+        // Parse Session ID from URL or localStorage
+        function parseSession() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlSession = urlParams.get('session');
+            
+            if (urlSession && urlSession.length === 6) {
+                // Configured via QR code or direct link
+                sessionId = urlSession.toUpperCase();
+                localStorage.setItem('locatrack_tracker_session', sessionId);
+                showTrackerView();
+            } else {
+                // Check localStorage
+                const storedSession = localStorage.getItem('locatrack_tracker_session');
+                if (storedSession && storedSession.length === 6) {
+                    sessionId = storedSession;
+                    showTrackerView();
+                } else {
+                    // Show Setup View (requires code input)
+                    showSetupView();
+                }
+            }
+        }
+
+        function showSetupView() {
+            document.getElementById('setup-view').style.display = 'flex';
+            document.getElementById('tracking-view').style.display = 'none';
+            document.getElementById('display-session').textContent = 'Eşleşmedi';
+        }
+
+        function showTrackerView() {
+            document.getElementById('setup-view').style.display = 'none';
+            document.getElementById('tracking-view').style.display = 'flex';
+            document.getElementById('display-session').textContent = sessionId;
+            
+            // Connect to MQTT Broker immediately
+            initMQTT();
+        }
+
+        // Initialize Battery API
+        function initBattery() {
+            if (navigator.getBattery) {
+                navigator.getBattery().then(battery => {
+                    const updateBatteryInfo = () => {
+                        batteryInfo = {
+                            level: Math.round(battery.level * 100),
+                            charging: battery.charging
+                        };
+                    };
+                    updateBatteryInfo();
+                    
+                    // Listeners for battery changes
+                    battery.addEventListener('levelchange', updateBatteryInfo);
+                    battery.addEventListener('chargingchange', updateBatteryInfo);
+                });
+            }
+        }
+
+        // Initialize MQTT WebSockets Connection
+        function initMQTT() {
+            if (typeof mqtt === 'undefined') {
+                console.error("MQTT library not loaded!");
+                updateConnectionBadge('disconnected', 'Bağlantı Hatası');
+                showToast('Hata: Sunucu bağlantı kütüphanesi yüklenemedi.');
+                return;
+            }
+
+            const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+            
+            updateConnectionBadge('searching', 'Sunucu aranıyor...');
+
+            const options = {
+                clientId: 'locatrack_tracker_' + Math.random().toString(16).substr(2, 8),
+                keepalive: 60,
+                reconnectPeriod: 5000,
+                connectTimeout: 30 * 1000,
+                clean: true
+            };
+
+            if (mqttClient) {
+                try { mqttClient.end(); } catch (e) {}
+            }
+
+            mqttClient = mqtt.connect(brokerUrl, options);
+
+            mqttClient.on('connect', () => {
+                console.log('Connected to MQTT broker');
+                updateConnectionBadge('connected', 'Bağlı (Aktif)');
+                showToast('İzleme paneline bağlandı!');
+            });
+
+            mqttClient.on('close', () => {
+                updateConnectionBadge('disconnected', 'Bağlantı Yok');
+            });
+
+            mqttClient.on('error', (err) => {
+                console.error(err);
+                updateConnectionBadge('disconnected', 'Bağlantı Hatası');
+            });
+        }
+
+        // Start GPS tracking
+        async function startTracking() {
+            if (!navigator.geolocation) {
+                alert('Telefonunuz GPS konum servislerini desteklemiyor!');
+                return;
+            }
+
+            // Attempt to acquire screen wake lock (so phone screen doesn't turn off)
+            await acquireWakeLock();
+
+            const geoOptions = {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            };
+
+            isTracking = true;
+            
+            // UI Update
+            const btn = document.getElementById('btn-tracker-toggle');
+            const btnText = document.getElementById('tracker-btn-text');
+            const statusLabel = document.getElementById('tracking-status-label');
+
+            btn.classList.add('active');
+            btnText.textContent = 'Duraklat';
+            statusLabel.textContent = 'Konum Gönderiliyor...';
+            statusLabel.style.color = 'var(--accent-cyan)';
+
+            // Start watch position
+            watchId = navigator.geolocation.watchPosition(
+                handleGeolocationSuccess,
+                handleGeolocationError,
+                geoOptions
+            );
+
+            showToast('GPS izleme başlatıldı.');
+        }
+
+        // Stop GPS tracking
+        function stopTracking() {
+            isTracking = false;
+
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+
+            // Release wake lock
+            releaseWakeLock();
+
+            // UI Update
+            const btn = document.getElementById('btn-tracker-toggle');
+            const btnText = document.getElementById('tracker-btn-text');
+            const statusLabel = document.getElementById('tracking-status-label');
+
+            btn.classList.remove('active');
+            btnText.textContent = 'Konumu Başlat';
+            statusLabel.textContent = 'Takip Devre Dışı';
+            statusLabel.style.color = 'var(--text-secondary)';
+
+            // Reset dashboard displays
+            document.getElementById('display-accuracy').textContent = '-- m';
+            document.getElementById('display-speed-alt').textContent = '-- / --';
+            document.getElementById('display-coords').textContent = 'Bekleniyor...';
+
+            showToast('İzleme durduruldu.');
+        }
+
+        // Handle success coordinates
+        function handleGeolocationSuccess(position) {
+            const { latitude, longitude, accuracy, speed, altitude, heading } = position.coords;
+
+            // UI Display updates
+            document.getElementById('display-accuracy').textContent = `${accuracy.toFixed(1)} m`;
+            
+            const speedDisplay = speed ? `${(speed * 3.6).toFixed(1)} km/s` : '0.0 km/s';
+            const altitudeDisplay = altitude ? `${altitude.toFixed(0)}m` : '--';
+            document.getElementById('display-speed-alt').textContent = `${speedDisplay} / ${altitudeDisplay}`;
+            document.getElementById('display-coords').textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+            // Broadcast payload over MQTT
+            if (mqttClient && mqttClient.connected) {
+                const payload = {
+                    lat: latitude,
+                    lng: longitude,
+                    accuracy: accuracy,
+                    speed: speed,
+                    altitude: altitude,
+                    heading: heading,
+                    timestamp: position.timestamp,
+                    battery: batteryInfo
+                };
+
+                const topic = `locatrack/session/${sessionId}`;
+                mqttClient.publish(topic, JSON.stringify(payload), { qos: 0 });
+            }
+        }
+
+        // Handle Location Errors
+        function handleGeolocationError(error) {
+            console.error('Geolocation error code:', error.code, 'msg:', error.message);
+            let msg = 'Konum alınamadı.';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    msg = 'Lütfen tarayıcınızın GPS (Konum) iznini onaylayın!';
+                    stopTracking();
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    msg = 'GPS konum verisi alınamıyor.';
+                    break;
+                case error.TIMEOUT:
+                    msg = 'GPS zaman aşımına uğradı.';
+                    break;
+            }
+            showToast(msg);
+        }
+
+        // Acquire Wake Lock
+        async function acquireWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake Lock acquired');
+                }
+            } catch (err) {
+                console.warn('Wake Lock request failed:', err);
+            }
+        }
+
+        // Release Wake Lock
+        function releaseWakeLock() {
+            if (wakeLock) {
+                wakeLock.release().then(() => {
+                    wakeLock = null;
+                    console.log('Wake Lock released');
+                });
+            }
+        }
+
+        // Update connection badge UI
+        function updateConnectionBadge(state, text) {
+            const badge = document.getElementById('connection-badge');
+            const textSpan = document.getElementById('connection-status-text');
+            
+            badge.className = 'status-badge ' + state;
+            textSpan.textContent = text;
+        }
+
+        // Show Toast Notifications
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-message');
+            
+            toastText.textContent = message;
+            toast.classList.add('active');
+            
+            setTimeout(() => {
+                toast.classList.remove('active');
+            }, 3500);
+        }
+
+        // Event Listeners setup
+        function setupEventListeners() {
+            // Room submission
+            const btnSubmit = document.getElementById('btn-submit-session');
+            const inputSession = document.getElementById('input-session');
+
+            btnSubmit.addEventListener('click', () => {
+                const val = inputSession.value.trim().toUpperCase();
+                if (val.length === 6) {
+                    sessionId = val;
+                    localStorage.setItem('locatrack_tracker_session', sessionId);
+                    showTrackerView();
+                } else {
+                    alert('Lütfen 6 haneli geçerli bir kod girin.');
+                }
+            });
+
+            // Edit Session Code
+            const btnEdit = document.getElementById('btn-edit-session');
+            btnEdit.addEventListener('click', () => {
+                if (isTracking) {
+                    if (!confirm('İzleme aktif. Kodu değiştirmek izlemeyi durduracaktır. Devam edilsin mi?')) {
+                        return;
+                    }
+                    stopTracking();
+                }
+                showSetupView();
+            });
+
+            // Tracking Toggle Button
+            const btnToggle = document.getElementById('btn-tracker-toggle');
+            btnToggle.addEventListener('click', () => {
+                if (isTracking) {
+                    stopTracking();
+                } else {
+                    startTracking();
+                }
+            });
+
+            // Re-acquire Wake Lock when tab becomes visible again
+            document.addEventListener('visibilitychange', async () => {
+                if (wakeLock !== null && document.visibilityState === 'visible' && isTracking) {
+                    await acquireWakeLock();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -322,9 +322,31 @@
 
         // Handle Real-Time Location Update Message
         function handleLocationUpdate(data) {
-            const { lat, lng, accuracy, speed, altitude, timestamp, battery } = data;
+            // Support both standard LocaTrack format and standard OwnTracks app format
+            const lat = data.lat;
+            const lng = data.lng !== undefined ? data.lng : data.lon;
 
             if (!lat || !lng) return;
+
+            const accuracy = data.accuracy !== undefined ? data.accuracy : (data.acc !== undefined ? data.acc : 0);
+            const speed = data.speed !== undefined ? data.speed : (data.vel !== undefined ? data.vel : 0);
+            const altitude = data.altitude !== undefined ? data.altitude : (data.alt !== undefined ? data.alt : 0);
+            
+            let timestamp = data.timestamp || Date.now();
+            if (data.tst !== undefined) {
+                // OwnTracks timestamp is in seconds, convert to milliseconds
+                timestamp = data.tst * 1000;
+            }
+
+            let batteryLevel = '-- %';
+            let batteryCharging = 'Bilinmiyor';
+            if (data.battery) {
+                batteryLevel = `${data.battery.level}%`;
+                batteryCharging = data.battery.charging ? 'Şarj Oluyor' : 'Deşarj Oluyor';
+            } else if (data.batt !== undefined) {
+                batteryLevel = `${data.batt}%`;
+                batteryCharging = 'Deşarj Oluyor';
+            }
 
             // Update Connection Status Badge
             updateConnectionBadge('connected', 'Telefon Aktif');
@@ -340,10 +362,8 @@
             document.getElementById('stat-coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
             document.getElementById('stat-last-time').textContent = `Son veri: ${timeStr}`;
 
-            if (battery) {
-                document.getElementById('stat-battery').textContent = `${battery.level}%`;
-                document.getElementById('stat-battery-charging').textContent = battery.charging ? 'Şarj Oluyor' : 'Deşarj Oluyor';
-            }
+            document.getElementById('stat-battery').textContent = batteryLevel;
+            document.getElementById('stat-battery-charging').textContent = batteryCharging;
 
             // Save coordinate history
             trackCoordinates.push(latLng);

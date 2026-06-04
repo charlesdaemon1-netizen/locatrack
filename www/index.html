@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>LocaTrack - Mobil Konum Gönderici</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0b0f19">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* ── Extra styles for background resilience UI ── */
+        .bg-status-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 11px;
+            color: var(--text-secondary);
+            flex-wrap: wrap;
+        }
+        .bg-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid transparent;
+        }
+        .bg-pill.ok   { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4); color: #10b981; }
+        .bg-pill.warn { background: rgba(245,158,11,0.15);  border-color: rgba(245,158,11,0.4);  color: #f59e0b; }
+        .bg-pill.bad  { background: rgba(239,68,68,0.15);   border-color: rgba(239,68,68,0.4);   color: #ef4444; }
+        .bg-pill.idle { background: rgba(100,116,139,0.15); border-color: rgba(100,116,139,0.4); color: #64748b; }
+
+        .reconnect-banner {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: rgba(245,158,11,0.18);
+            border-bottom: 1px solid rgba(245,158,11,0.35);
+            font-size: 13px;
+            font-weight: 600;
+            color: #f59e0b;
+            text-align: center;
+        }
+        .reconnect-banner.show { display: flex; }
+        .spin { animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            width: 100%;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .stat-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+        .stat-value { font-size: 16px; font-weight: 700; color: white; }
+        .stat-value.cyan  { color: var(--accent-cyan, #06b6d4); }
+        .stat-value.green { color: #10b981; }
+        .stat-value.amber { color: #f59e0b; }
+
+        .tracker-btn-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+        }
+        .big-btn {
+            width: 140px; height: 140px;
+            border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.05);
+            cursor: pointer;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 8px;
+            font-size: 13px; font-weight: 700;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .big-btn svg { width: 36px; height: 36px; }
+        .big-btn::before {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .big-btn.active {
+            background: rgba(6,182,212,0.18);
+            border-color: rgba(6,182,212,0.6);
+            color: #06b6d4;
+            box-shadow: 0 0 32px rgba(6,182,212,0.25);
+        }
+        .big-btn.active::before {
+            border-color: rgba(6,182,212,0.3);
+            animation: pulse-ring 1.8s ease-out infinite;
+        }
+        @keyframes pulse-ring {
+            0%   { transform: scale(1);   opacity: 0.8; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+
+        .info-footer {
+            width: 100%;
+            padding: 0 0 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .info-row .lbl { font-size: 12px; color: var(--text-secondary); }
+        .info-row .val { font-size: 13px; font-weight: 600; color: white; }
+
+        .session-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: rgba(6,182,212,0.08);
+            border: 1px solid rgba(6,182,212,0.25);
+            border-radius: 10px;
+        }
+        .session-code {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            color: #06b6d4;
+            font-family: monospace;
+        }
+        .edit-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-secondary); padding: 4px;
+            display: flex; align-items: center;
+        }
+        .edit-btn:hover { color: white; }
+
+        #setup-overlay {
+            position: fixed; inset: 0;
+            background: rgba(11,15,25,0.97);
+            z-index: 100;
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px;
+        }
+        .setup-card {
+            background: rgba(30,41,59,0.9);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 32px 24px;
+            width: 100%; max-width: 360px;
+            display: flex; flex-direction: column; gap: 18px;
+            text-align: center;
+        }
+        .setup-card h2 { font-size: 20px; font-weight: 800; }
+        .setup-card p  { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+        .setup-input {
+            width: 100%; padding: 16px;
+            border-radius: 12px;
+            border: 2px solid rgba(6,182,212,0.4);
+            background: rgba(255,255,255,0.05);
+            color: white;
+            font-size: 22px;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-align: center;
+            letter-spacing: 0.15em;
+            outline: none;
+            font-family: monospace;
+        }
+        .setup-input:focus { border-color: #06b6d4; }
+        .setup-btn {
+            width: 100%; padding: 14px;
+            border: none; border-radius: 12px;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            color: white; font-size: 15px; font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .setup-btn:hover { opacity: 0.88; }
+
+        #toast-notif {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+            background: rgba(30,41,59,0.96);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 12px 20px;
+            font-size: 13px; font-weight: 600;
+            color: white;
+            transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+            z-index: 999;
+            white-space: nowrap;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        #toast-notif.show { transform: translateX(-50%) translateY(0); }
+    </style>
+</head>
+<body style="overflow-y: auto; margin: 0; padding: 0; min-height: 100dvh; background: #0b0f19; font-family: 'Outfit', sans-serif;">
+
+<!-- ══ Setup Overlay ══ -->
+<div id="setup-overlay">
+    <div class="setup-card">
+        <div style="font-size: 40px;">📍</div>
+        <h2>LocaTrack Mobil</h2>
+        <p>Bilgisayar ekranındaki <strong>6 haneli eşleşme kodunu</strong> girerek cihazları bağlayın.</p>
+        <input type="text" id="setup-input" class="setup-input" placeholder="XXXXXX" maxlength="6" autocapitalize="characters" autocomplete="off">
+        <button class="setup-btn" id="setup-connect-btn">Bağlan 🚀</button>
+        <p style="font-size: 11px; opacity: 0.5;">Bir kez bağlandıktan sonra bu adım bir daha çıkmaz.</p>
+    </div>
+</div>
+
+<!-- ══ Main App ══ -->
+<div id="main-app" style="display:flex; flex-direction:column; min-height:100dvh;">
+
+    <!-- Header -->
+    <header style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.07);">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#06b6d4,#3b82f6);display:flex;align-items:center;justify-content:center;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+            </div>
+            <span style="font-size:17px;font-weight:800;">LocaTrack</span>
+        </div>
+        <div id="conn-badge" style="display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;background:rgba(100,116,139,0.2);border:1px solid rgba(100,116,139,0.3);font-size:12px;font-weight:600;color:#64748b;">
+            <span id="conn-dot" style="width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;"></span>
+            <span id="conn-text">Bağlı Değil</span>
+        </div>
+    </header>
+
+    <!-- Reconnect Banner -->
+    <div id="reconnect-banner" class="reconnect-banner">
+        <span class="spin">↻</span>
+        <span id="reconnect-text">Yeniden bağlanıyor...</span>
+    </div>
+
+    <!-- Background Status Bar -->
+    <div class="bg-status-bar">
+        <span style="font-size:10px;opacity:0.5;">Durum:</span>
+        <span id="pill-network" class="bg-pill idle">🌐 İnternet —</span>
+        <span id="pill-mqtt"    class="bg-pill idle">📡 MQTT —</span>
+        <span id="pill-gps"     class="bg-pill idle">📍 GPS —</span>
+        <span id="pill-wake"    class="bg-pill idle">🔆 Ekran —</span>
+    </div>
+
+    <!-- Content -->
+    <main style="flex:1; display:flex; flex-direction:column; align-items:center; gap:24px; padding:20px 16px;">
+
+        <!-- Big Toggle Button -->
+        <div class="tracker-btn-wrap">
+            <button id="big-toggle-btn" class="big-btn" onclick="toggleTracking()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                <span id="big-btn-label">Başlat</span>
+            </button>
+            <div id="tracking-status" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">TAKİP DEVRE DIŞI</div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="stat-label">Batarya</div>
+                <div class="stat-value green" id="stat-battery">--%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Hız</div>
+                <div class="stat-value cyan" id="stat-speed">-- km/s</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">GPS Doğruluk</div>
+                <div class="stat-value" id="stat-accuracy">-- m</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Rakım</div>
+                <div class="stat-value" id="stat-altitude">-- m</div>
+            </div>
+        </div>
+
+        <!-- Info Rows -->
+        <div class="info-footer">
+            <div class="session-row">
+                <div>
+                    <div style="font-size:10px;color:var(--text-secondary);margin-bottom:2px;">EŞLEŞME KODU</div>
+                    <div class="session-code" id="display-session">------</div>
+                </div>
+                <button class="edit-btn" onclick="resetSession()" title="Değiştir">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+            </div>
+            <div class="info-row">
+                <span class="lbl">Koordinatlar</span>
+                <span class="val" id="stat-coords" style="font-family:monospace;font-size:12px;">Bekleniyor...</span>
+            </div>
+            <div class="info-row">
+                <span class="lbl">Son güncelleme</span>
+                <span class="val" id="stat-last-update">--</span>
+            </div>
+            <div class="info-row">
+                <span class="lbl">Gönderilen paket</span>
+                <span class="val" id="stat-packets">0</span>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Toast -->
+<div id="toast-notif"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<script>
+// ════════════════════════════════════════════════
+//  LocaTrack Tracker — Robust Background Edition
+// ════════════════════════════════════════════════
+
+// ── State ──
+let sessionId        = '';
+let isTracking       = false;
+let watchId          = null;
+let wakeLock         = null;
+let batteryInfo      = { level: null, charging: false };
+let audioCtx         = null;
+let silentSrc        = null;
+let mqttClient       = null;
+let packetCount      = 0;
+let heartbeatTimer   = null;
+let reconnectTimer   = null;
+let reconnectAttempt = 0;
+let userWantsTracking= false; // restored from localStorage
+
+const BROKER_URL     = 'wss://broker.hivemq.com:8884/mqtt';
+const SESSION_KEY    = 'locatrack_session_v2';
+const TRACKING_KEY   = 'locatrack_was_tracking';
+
+// ════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+    initBattery();
+    setupNetworkListeners();
+
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved && saved.length === 6) {
+        sessionId = saved;
+        showMainApp();
+        initMQTT();
+
+        // Restore tracking state if user had it running before
+        if (localStorage.getItem(TRACKING_KEY) === '1') {
+            setTimeout(() => startTracking(true), 800);
+        }
+    } else {
+        showSetup();
+    }
+
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+});
+
+// ════════════════════════════════════════════════
+// UI HELPERS
+// ════════════════════════════════════════════════
+function showSetup() {
+    document.getElementById('setup-overlay').style.display = 'flex';
+    document.getElementById('main-app').style.display      = 'none';
+}
+function showMainApp() {
+    document.getElementById('setup-overlay').style.display = 'none';
+    document.getElementById('main-app').style.display      = 'flex';
+    document.getElementById('display-session').textContent = sessionId;
+}
+function toast(msg, dur = 3200) {
+    const el = document.getElementById('toast-notif');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), dur);
+}
+function setPill(id, cls, text) {
+    const el = document.getElementById(id);
+    el.className = 'bg-pill ' + cls;
+    el.textContent = text;
+}
+function setConnBadge(state, text) {
+    const badge = document.getElementById('conn-badge');
+    const dot   = document.getElementById('conn-dot');
+    const label = document.getElementById('conn-text');
+    label.textContent = text;
+    const colors = { connected: '#10b981', searching: '#f59e0b', disconnected: '#ef4444', idle: '#64748b' };
+    badge.style.color = colors[state] || '#64748b';
+    badge.style.borderColor = (colors[state] || '#64748b') + '55';
+    badge.style.background  = (colors[state] || '#64748b') + '22';
+}
+
+// ════════════════════════════════════════════════
+// SETUP SCREEN
+// ════════════════════════════════════════════════
+document.getElementById('setup-connect-btn').addEventListener('click', connectSession);
+document.getElementById('setup-input').addEventListener('keydown', e => { if (e.key === 'Enter') connectSession(); });
+
+function connectSession() {
+    const val = document.getElementById('setup-input').value.trim().toUpperCase();
+    if (val.length !== 6) { toast('❌ 6 haneli kod girin'); return; }
+    sessionId = val;
+    localStorage.setItem(SESSION_KEY, sessionId);
+    showMainApp();
+    initMQTT();
+    toast('✅ Kod kaydedildi: ' + sessionId);
+}
+function resetSession() {
+    if (isTracking && !confirm('İzleme aktif. Durdurup kodu değiştireyim mi?')) return;
+    stopTracking(true);
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(TRACKING_KEY);
+    if (mqttClient) try { mqttClient.end(true); } catch(e){}
+    mqttClient = null;
+    sessionId = '';
+    document.getElementById('setup-input').value = '';
+    showSetup();
+}
+
+// ════════════════════════════════════════════════
+// MQTT — with auto-reconnect & heartbeat
+// ════════════════════════════════════════════════
+function initMQTT() {
+    if (typeof mqtt === 'undefined') {
+        setConnBadge('disconnected', 'Kütüphane Yok');
+        return;
+    }
+    if (mqttClient) { try { mqttClient.end(true); } catch(e){} }
+
+    setConnBadge('searching', 'Bağlanıyor...');
+    setPill('pill-mqtt', 'warn', '📡 MQTT bağlanıyor');
+
+    const opts = {
+        clientId:        'lt_tracker_' + Math.random().toString(36).substr(2, 8),
+        keepalive:       30,
+        reconnectPeriod: 0,     // manuel kontrol
+        connectTimeout:  20000,
+        clean:           true,
+    };
+
+    mqttClient = mqtt.connect(BROKER_URL, opts);
+
+    mqttClient.on('connect', () => {
+        reconnectAttempt = 0;
+        clearTimeout(reconnectTimer);
+        setConnBadge('connected', 'Bağlı');
+        setPill('pill-mqtt', 'ok', '📡 MQTT ✓');
+        document.getElementById('reconnect-banner').classList.remove('show');
+        startHeartbeat();
+        toast('🔗 Sunucuya bağlandı!');
+    });
+
+    mqttClient.on('close', () => {
+        setConnBadge('disconnected', 'Koptu');
+        setPill('pill-mqtt', 'bad', '📡 Koptu');
+        stopHeartbeat();
+        scheduleReconnect();
+    });
+
+    mqttClient.on('offline', () => {
+        setConnBadge('searching', 'Çevrimdışı');
+        setPill('pill-mqtt', 'warn', '📡 Çevrimdışı');
+    });
+
+    mqttClient.on('error', err => {
+        console.warn('MQTT error:', err.message);
+    });
+}
+
+function scheduleReconnect() {
+    if (!navigator.onLine) return;           // bekle, internet yok
+    const delay = Math.min(3000 * Math.pow(1.5, reconnectAttempt), 30000);
+    reconnectAttempt++;
+    const secs = Math.round(delay/1000);
+    document.getElementById('reconnect-banner').classList.add('show');
+    document.getElementById('reconnect-text').textContent = `${secs}s sonra yeniden bağlanılıyor... (${reconnectAttempt}. deneme)`;
+    reconnectTimer = setTimeout(() => {
+        if (sessionId) initMQTT();
+    }, delay);
+}
+
+function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+        if (mqttClient && mqttClient.connected) {
+            mqttClient.publish(`locatrack/ping/${sessionId}`, JSON.stringify({ ts: Date.now() }), { qos: 0 });
+        }
+    }, 20000);  // her 20 saniyede bir ping
+}
+function stopHeartbeat() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// ════════════════════════════════════════════════
+// NETWORK EVENTS — WiFi açılınca otomatik bağlan
+// ════════════════════════════════════════════════
+function setupNetworkListeners() {
+    window.addEventListener('online', () => {
+        setPill('pill-network', 'ok', '🌐 İnternet ✓');
+        toast('📶 İnternet bağlantısı sağlandı, yeniden bağlanılıyor...');
+        reconnectAttempt = 0;
+        if (sessionId) initMQTT();
+    });
+    window.addEventListener('offline', () => {
+        setPill('pill-network', 'bad', '🌐 İnternet Yok');
+        toast('📵 İnternet bağlantısı kesildi');
+        clearTimeout(reconnectTimer);
+        document.getElementById('reconnect-banner').classList.remove('show');
+    });
+
+    // İlk durum
+    setPill('pill-network', navigator.onLine ? 'ok' : 'bad',
+        navigator.onLine ? '🌐 İnternet ✓' : '🌐 Yok');
+}
+
+// ════════════════════════════════════════════════
+// VISIBILITY — Sekme/Uygulama geri açılınca
+// ════════════════════════════════════════════════
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+        // Bağlantı kontrolü
+        if (sessionId && (!mqttClient || !mqttClient.connected)) {
+            reconnectAttempt = 0;
+            initMQTT();
+        }
+        // Wake Lock yeniden al
+        if (isTracking && wakeLock === null) {
+            await acquireWakeLock();
+        }
+        toast('👁 Ekrana dönüldü, bağlantı kontrol ediliyor...');
+    }
+});
+
+// ════════════════════════════════════════════════
+// TRACKING
+// ════════════════════════════════════════════════
+async function toggleTracking() {
+    if (isTracking) stopTracking(); else startTracking();
+}
+
+async function startTracking(silent = false) {
+    if (!navigator.geolocation) { toast('❌ GPS desteklenmiyor'); return; }
+
+    userWantsTracking = true;
+    localStorage.setItem(TRACKING_KEY, '1');
+
+    await acquireWakeLock();
+    startSilentAudio();
+
+    isTracking = true;
+    setTrackingUI(true);
+    if (!silent) toast('▶️ GPS izleme başlatıldı');
+
+    watchId = navigator.geolocation.watchPosition(
+        onPosition,
+        onGeoError,
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+}
+
+function stopTracking(silent = false) {
+    userWantsTracking = false;
+    localStorage.removeItem(TRACKING_KEY);
+    isTracking = false;
+
+    if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+    releaseWakeLock();
+    stopSilentAudio();
+    setTrackingUI(false);
+    setPill('pill-gps', 'idle', '📍 GPS —');
+    if (!silent) toast('⏹ İzleme durduruldu');
+}
+
+function setTrackingUI(on) {
+    const btn   = document.getElementById('big-toggle-btn');
+    const label = document.getElementById('big-btn-label');
+    const status= document.getElementById('tracking-status');
+    if (on) {
+        btn.classList.add('active');
+        label.textContent    = 'Durdur';
+        status.textContent   = 'KONUM GÖNDERİLİYOR';
+        status.style.color   = '#06b6d4';
+    } else {
+        btn.classList.remove('active');
+        label.textContent    = 'Başlat';
+        status.textContent   = 'TAKİP DEVRE DIŞI';
+        status.style.color   = '#64748b';
+        document.getElementById('stat-coords').textContent      = 'Bekleniyor...';
+        document.getElementById('stat-speed').textContent       = '-- km/s';
+        document.getElementById('stat-accuracy').textContent    = '-- m';
+        document.getElementById('stat-altitude').textContent    = '-- m';
+        document.getElementById('stat-last-update').textContent = '--';
+    }
+}
+
+// ════════════════════════════════════════════════
+// GEOLOCATION
+// ════════════════════════════════════════════════
+function onPosition(pos) {
+    const { latitude: lat, longitude: lng, accuracy, speed, altitude, heading } = pos.coords;
+
+    // UI
+    document.getElementById('stat-coords').textContent   = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    document.getElementById('stat-speed').textContent    = speed ? `${(speed*3.6).toFixed(1)} km/s` : '0.0 km/s';
+    document.getElementById('stat-accuracy').textContent = `${accuracy.toFixed(0)} m`;
+    document.getElementById('stat-altitude').textContent = altitude ? `${altitude.toFixed(0)} m` : '-- m';
+    document.getElementById('stat-last-update').textContent = new Date().toLocaleTimeString('tr-TR');
+    setPill('pill-gps', accuracy < 30 ? 'ok' : 'warn', `📍 ${accuracy.toFixed(0)}m`);
+
+    // MQTT publish
+    if (mqttClient && mqttClient.connected) {
+        packetCount++;
+        document.getElementById('stat-packets').textContent = packetCount;
+        const payload = { lat, lng, accuracy, speed, altitude, heading,
+                          timestamp: pos.timestamp, battery: batteryInfo };
+        mqttClient.publish(`locatrack/session/${sessionId}`, JSON.stringify(payload), { qos: 0 });
+    } else {
+        // bağlı değilse yeniden bağlanmayı tetikle
+        if (!mqttClient || !mqttClient.connected) initMQTT();
+    }
+}
+
+function onGeoError(err) {
+    const msgs = { 1: '❌ GPS izni verilmedi! Lütfen tarayıcı ayarlarından izin verin.', 2: '⚠️ GPS sinyali alınamıyor.', 3: '⏱ GPS zaman aşımı.' };
+    toast(msgs[err.code] || 'GPS hatası');
+    if (err.code === 1) stopTracking();
+}
+
+// ════════════════════════════════════════════════
+// WAKE LOCK
+// ════════════════════════════════════════════════
+async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) {
+        setPill('pill-wake', 'idle', '🔆 Desteklenmiyor');
+        return;
+    }
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        setPill('pill-wake', 'ok', '🔆 Ekran Açık');
+        wakeLock.addEventListener('release', () => {
+            wakeLock = null;
+            setPill('pill-wake', 'warn', '🔆 Kilitleniyor');
+        });
+    } catch (e) {
+        setPill('pill-wake', 'warn', '🔆 Alınamadı');
+    }
+}
+function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release().catch(()=>{}); wakeLock = null; }
+    setPill('pill-wake', 'idle', '🔆 —');
+}
+
+// ════════════════════════════════════════════════
+// SILENT AUDIO (arka planda JS'yi canlı tutar)
+// ════════════════════════════════════════════════
+function startSilentAudio() {
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.loop   = true;
+        src.connect(audioCtx.destination);
+        src.start(0);
+        silentSrc = src;
+    } catch(e) { console.warn('Silent audio failed:', e); }
+}
+function stopSilentAudio() {
+    try { if (silentSrc) { silentSrc.stop(); silentSrc = null; } } catch(e){}
+    try { if (audioCtx)  { audioCtx.close();  audioCtx  = null; } } catch(e){}
+}
+
+// ════════════════════════════════════════════════
+// BATTERY
+// ════════════════════════════════════════════════
+function initBattery() {
+    if (!navigator.getBattery) return;
+    navigator.getBattery().then(b => {
+        const update = () => {
+            batteryInfo = { level: Math.round(b.level * 100), charging: b.charging };
+            const icon  = b.charging ? '⚡' : (b.level > 0.2 ? '🔋' : '🪫');
+            document.getElementById('stat-battery').textContent = `${icon} ${batteryInfo.level}%`;
+        };
+        update();
+        b.addEventListener('levelchange',   update);
+        b.addEventListener('chargingchange', update);
+    });
+}
+</script>
+</body>
+</html>

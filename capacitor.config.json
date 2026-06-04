@@ -1,0 +1,23 @@
+{
+  "appId": "com.locatrack.app",
+  "appName": "LocaTrack",
+  "webDir": "www",
+  "android": {
+    "buildOptions": {
+      "releaseType": "APK"
+    }
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#06b6d4"
+    },
+    "BackgroundGeolocation": {
+      "backgroundMessage": "LocaTrack konumunuzu arka planda takip ediyor.",
+      "backgroundTitle": "LocaTrack Aktif",
+      "requestPermissions": true,
+      "stale": false,
+      "distanceFilter": 10
+    }
+  }
+}

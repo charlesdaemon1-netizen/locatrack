@@ -1,0 +1,28 @@
+{
+  "name": "yeni-proje-gravity-kod",
+  "version": "1.0.0",
+  "description": "",
+  "main": "sw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charlesdaemon1-netizen/locatrack.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/charlesdaemon1-netizen/locatrack/issues"
+  },
+  "homepage": "https://github.com/charlesdaemon1-netizen/locatrack#readme",
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/local-notifications": "^8.2.0"
+  }
+}
